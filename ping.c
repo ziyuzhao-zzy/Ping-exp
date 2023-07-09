@@ -7,18 +7,60 @@ struct proto	proto_v6 = { proc_v6, send_v6, NULL, NULL, 0, IPPROTO_ICMPV6 };
 #endif
 
 int	datalen = 56;		/* data that goes with ICMP echo request */
+int broadcast_flag = 0;
+int ttl;
+int ttl_flag = 0;
+int quiet_flag = 0;
+int count = 64;
+int send_interval = 1;
+double rttMax = -1;
+double rttMin = 1e8;
+double rttTotal = 0;
+int recvCount = 0;
+int sendCount = 0;
+int initial_num = 0;
+struct timeval tvalBegin;
 
-int
-main(int argc, char **argv)
+int main(int argc, char **argv)
 {
 	int				c;
 	struct addrinfo	*ai;
 
 	opterr = 0;		/* don't want getopt() writing to stderr */
-	while ( (c = getopt(argc, argv, "v")) != -1) {
+	while ( (c = getopt(argc, argv, "hbt:qc:s:i:n:")) != -1) {
 		switch (c) {
-		case 'v':
-			verbose++;
+		case 'h':
+			help();
+			break;
+
+		case 'b':
+			broadcast_flag = 1;
+			break;
+		
+		case 't':
+			sscanf(optarg, "%d", &ttl);
+			if(ttl >= 0 && ttl < 256)
+				ttl_flag = 1;
+			break;
+
+		case 'q':
+			quiet_flag = 1;
+			break;
+
+		case 'c':
+			sscanf(optarg, "%d", &count);
+			break;
+
+		case 's':
+			sscanf(optarg, "%d", &datalen);
+			break;
+
+		case 'i':
+			sscanf(optarg, "%d", &send_interval);
+			break;
+
+		case 'n':
+			sscanf(optarg, "%d", &initial_num);
 			break;
 
 		case '?':
@@ -86,9 +128,29 @@ proc_v4(char *ptr, ssize_t len, struct timeval *tvrecv)
 		tv_sub(tvrecv, tvsend);
 		rtt = tvrecv->tv_sec * 1000.0 + tvrecv->tv_usec / 1000.0;
 
-		printf("%d bytes from %s: seq=%u, ttl=%d, rtt=%.3f ms\n",
+		if (rtt > rttMax)
+			rttMax = rtt;
+		if (rtt < rttMin)
+			rttMin = rtt; 
+		rttTotal += rtt;
+		recvCount++;
+		if(!quiet_flag)
+			printf("%d bytes from %s: seq=%u, ttl=%d, rtt=%.3f ms\n",
 				icmplen, Sock_ntop_host(pr->sarecv, pr->salen),
-				icmp->icmp_seq, ip->ip_ttl, rtt);
+				icmp->icmp_seq + initial_num, ip->ip_ttl, rtt);
+
+		if (icmp->icmp_seq == count - 1){
+			double tvalSum;
+			struct timeval tvalEnd; 
+			double rttAverage;
+			gettimeofday(&tvalEnd, NULL);
+			tv_sub(&tvalEnd, &tvalBegin);
+			tvalSum = tvalEnd.tv_sec * 1000.0 + tvalEnd.tv_usec / 1000.0; rttAverage = rttTotal / recvCount;
+			puts("--- ping statistics ---");
+			printf("%lld packets transmitted, %lld received, %.0lf%% packet loss, time %.2lfms\n", sendCount, recvCount, (sendCount - recvCount) * 100.0 / sendCount, tvalSum);
+			printf("rtt min/avg/max = %.3lf/%.3lf/%.3lf ms\n", rttMin, rttAverage, rttMax);
+			exit(0); 
+		}
 
 	} else if (verbose) {
 		printf("  %d bytes from %s: type = %d, code = %d\n",
@@ -222,9 +284,19 @@ readloop(void)
 	sockfd = socket(pr->sasend->sa_family, SOCK_RAW, pr->icmpproto);
 	setuid(getuid());		/* don't need special permissions any more */
 
+	if(broadcast_flag == 1){
+		const int opt = -1;
+		setsockopt(sockfd, SOL_SOCKET, SO_BROADCAST, &opt, sizeof(opt)); 
+	}
+
+	if(ttl_flag == 1){
+		printf("set ttl = %d!\n", ttl);
+		setsockopt(sockfd, IPPROTO_IP, IP_TTL, &ttl, sizeof(ttl));
+	}
+
 	size = 60 * 1024;		/* OK if setsockopt fails */
 	setsockopt(sockfd, SOL_SOCKET, SO_RCVBUF, &size, sizeof(size));
-
+	gettimeofday(&tvalBegin, NULL);
 	sig_alrm(SIGALRM);		/* send first packet */
 
 	for ( ; ; ) {
@@ -246,8 +318,8 @@ void
 sig_alrm(int signo)
 {
         (*pr->fsend)();
-
-        alarm(1);
+		sendCount++;
+        alarm(send_interval);
         return;         /* probably interrupts recvfrom() */
 }
 
@@ -390,4 +462,15 @@ err_sys(const char *fmt, ...)
         err_doit(1, LOG_ERR, fmt, ap);
         va_end(ap);
         exit(1);
+}
+
+void help(){
+	printf("-h	显示帮助信息 ./ping -h\n");
+	printf("-b	允许ping一个广播地址，只用于IPv4 sudo ./ping -b 192.168.88.255\n");
+	printf("-t  设置ttl值，只用于IPv4 sudo ./ping -t 10 baidu.com\n");
+	printf("-q	安静模式。不显示每个收到的包的分析结果，只在结束时，显示汇总结果 sudo ./ping -q baidu.com\n");
+    printf("-c  发送指定个数的数据包 sudo ./ping -c 10 baidu.com\n");
+    printf("-s  发送指定大小的数据包 sudo ./ping -s 60 baidu.com\n");
+    printf("-i  设置发送包的时间间隔 sudo ./ping -i 5 baidu.com\n");
+    printf("-n  设置包的初始序列号 sudo ./ping -n 1 baidu.com\n");
 }
