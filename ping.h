@@ -49,6 +49,7 @@ void	 send_v6(void);
 void	 readloop(void);
 void	 sig_alrm(int);
 void	 tv_sub(struct timeval *, struct timeval *);
+void	 help(void);
 
 char * Sock_ntop_host(const struct sockaddr *sa, socklen_t salen);
 struct addrinfo* host_serv(const char *host, const char *serv, int family, int socktype);
@@ -64,4 +65,5 @@ struct proto {
   socklen_t	    salen;		/* length of sockaddr{}s */
   int	   	    icmpproto;	/* IPPROTO_xxx value for ICMP */
 } *pr;
+
 
