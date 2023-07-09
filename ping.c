@@ -19,6 +19,8 @@ double rttTotal = 0;
 int recvCount = 0;
 int sendCount = 0;
 int initial_num = 0;
+int data_flag = 0;
+int detail_flag = 0;
 struct timeval tvalBegin;
 
 int main(int argc, char **argv)
@@ -27,7 +29,7 @@ int main(int argc, char **argv)
 	struct addrinfo	*ai;
 
 	opterr = 0;		/* don't want getopt() writing to stderr */
-	while ( (c = getopt(argc, argv, "hbt:qc:s:i:n:")) != -1) {
+	while ( (c = getopt(argc, argv, "hbt:qc:s:i:n:dv")) != -1) {
 		switch (c) {
 		case 'h':
 			help();
@@ -63,6 +65,14 @@ int main(int argc, char **argv)
 			sscanf(optarg, "%d", &initial_num);
 			break;
 
+		case 'd':
+			data_flag = 1;
+			break;
+
+		case 'v':
+			detail_flag = 1;
+			break;
+		
 		case '?':
 			err_quit("unrecognized option: %c", c);
 		}
@@ -134,11 +144,20 @@ proc_v4(char *ptr, ssize_t len, struct timeval *tvrecv)
 			rttMin = rtt; 
 		rttTotal += rtt;
 		recvCount++;
-		if(!quiet_flag)
-			printf("%d bytes from %s: seq=%u, ttl=%d, rtt=%.3f ms\n",
+		if(!quiet_flag){
+			if(data_flag){
+				double date = time(NULL) + tvrecv->tv_usec / 1000000.0; 
+				printf("[%.6lf]", date);
+			}
+			if(!detail_flag)
+				printf("%d bytes from %s: seq=%u, ttl=%d, rtt=%.3f ms\n",
+					icmplen, Sock_ntop_host(pr->sarecv, pr->salen),
+					icmp->icmp_seq + initial_num, ip->ip_ttl, rtt);
+			else
+				printf("  %d bytes from %s: type = %d, code = %d\n",
 				icmplen, Sock_ntop_host(pr->sarecv, pr->salen),
-				icmp->icmp_seq + initial_num, ip->ip_ttl, rtt);
-
+				icmp->icmp_type, icmp->icmp_code);
+		}
 		if (icmp->icmp_seq == count - 1){
 			double tvalSum;
 			struct timeval tvalEnd; 
@@ -148,7 +167,7 @@ proc_v4(char *ptr, ssize_t len, struct timeval *tvrecv)
 			tvalSum = tvalEnd.tv_sec * 1000.0 + tvalEnd.tv_usec / 1000.0; rttAverage = rttTotal / recvCount;
 			puts("--- ping statistics ---");
 			printf("%lld packets transmitted, %lld received, %.0lf%% packet loss, time %.2lfms\n", sendCount, recvCount, (sendCount - recvCount) * 100.0 / sendCount, tvalSum);
-			printf("rtt min/avg/max = %.3lf/%.3lf/%.3lf ms\n", rttMin, rttAverage, rttMax);
+			printf("min rtt = %.3lf ms, avg rtt = %.3lf ms, max rtt = %.3lf ms\n", rttMin, rttAverage, rttMax);
 			exit(0); 
 		}
 
@@ -473,4 +492,6 @@ void help(){
     printf("-s  发送指定大小的数据包 sudo ./ping -s 60 baidu.com\n");
     printf("-i  设置发送包的时间间隔 sudo ./ping -i 5 baidu.com\n");
     printf("-n  设置包的初始序列号 sudo ./ping -n 1 baidu.com\n");
+	printf("-d  打印时间戳 sudo ./ping -d baidu.com\n");
+	printf("-v  显示详细输出 sudo ./ping -v baidu.com\n");
 }
